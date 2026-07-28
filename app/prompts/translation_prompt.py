@@ -43,8 +43,6 @@ def build_translation_prompt(text: str) -> str:
 客人
 包廂
 續時
-下班
-上班
 休息室
 小姐
 幹部
