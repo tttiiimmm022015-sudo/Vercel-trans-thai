@@ -1,0 +1,15 @@
+.env
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+**/*.pyc
+.pytest_cache
+tests
+Dockerfile
+Procfile
+.git
+.github
+.vscode
+.idea
