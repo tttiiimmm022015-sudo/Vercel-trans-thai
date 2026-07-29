@@ -39,7 +39,6 @@ def build_translation_prompt(text: str) -> str:
 請優先使用酒店、KTV、娛樂場所最自然的說法。
 
 例如：
-
 客人
 續時
 休息室
