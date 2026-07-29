@@ -41,7 +41,6 @@ def build_translation_prompt(text: str) -> str:
 例如：
 
 客人
-包廂
 續時
 休息室
 小姐
@@ -51,9 +50,7 @@ def build_translation_prompt(text: str) -> str:
 酒水
 香菸
 麥克風
-大房
-小房
-VIP
+
 
 都請翻譯成業界最常使用的表達。
 
