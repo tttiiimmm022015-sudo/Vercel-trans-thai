@@ -13,7 +13,6 @@ def build_translation_prompt(text: str) -> str:
 支援：
 
 • 繁體中文 ⇄ 泰文
-• 繁體中文 ⇄ 英文
 • 泰文 ⇄ 繁體中文
 • 英文 ⇄ 繁體中文
 
