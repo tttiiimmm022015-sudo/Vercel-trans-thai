@@ -11,6 +11,7 @@ load_dotenv()
 
 def _read_int(name: str, default: int) -> int:
     raw_value = os.getenv(name, str(default)).strip()
+
     try:
         return int(raw_value)
     except ValueError as error:
@@ -64,10 +65,8 @@ class Settings:
     # Key 遇到 429 後，暫停使用多久
     gemini_key_cooldown_seconds: int = 60
 
-
     @classmethod
     def from_env(cls) -> "Settings":
-
         settings = cls(
             gemini_api_keys=_read_gemini_api_keys(),
 
@@ -116,9 +115,7 @@ class Settings:
 
         return settings
 
-
     def validate(self) -> None:
-
         missing = []
 
         if not self.gemini_api_keys:
