@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 # -----------------------------
 
 _lock = threading.Lock()
-
 _current_index = 0
 
 # key index -> cooldown 結束時間
@@ -36,13 +35,11 @@ def _is_quota_error(error: Exception) -> bool:
 def _get_available_key_indexes(
     key_count: int
 ) -> list[int]:
-
     global _current_index
 
     now = time.monotonic()
 
     with _lock:
-
         # 清掉已經過期的 cooldown
         expired_indexes = [
             index
@@ -61,7 +58,6 @@ def _get_available_key_indexes(
 
         # 從目前輪詢位置開始
         for offset in range(key_count):
-
             index = (
                 _current_index + offset
             ) % key_count
@@ -76,11 +72,9 @@ def _advance_index(
     used_index: int,
     key_count: int
 ) -> None:
-
     global _current_index
 
     with _lock:
-
         _current_index = (
             used_index + 1
         ) % key_count
@@ -89,7 +83,6 @@ def _advance_index(
 def _put_key_in_cooldown(
     index: int
 ) -> None:
-
     settings = get_settings()
 
     cooldown_seconds = (
@@ -97,7 +90,6 @@ def _put_key_in_cooldown(
     )
 
     with _lock:
-
         _key_cooldowns[index] = (
             time.monotonic()
             + cooldown_seconds
@@ -114,7 +106,6 @@ def _generate_with_key(
     api_key: str,
     prompt: str
 ) -> str:
-
     settings = get_settings()
 
     client = genai.Client(
@@ -122,11 +113,8 @@ def _generate_with_key(
     )
 
     response = client.models.generate_content(
-
         model=settings.gemini_model,
-
         contents=prompt,
-
         config={
             "temperature": 0,
             "max_output_tokens":
@@ -159,7 +147,6 @@ def generate_translation(
     settings = get_settings()
 
     api_keys = settings.gemini_api_keys
-
     key_count = len(api_keys)
 
     indexes = _get_available_key_indexes(
@@ -169,7 +156,6 @@ def generate_translation(
     # 如果全部都還在 cooldown，
     # 重新允許全部嘗試一次
     if not indexes:
-
         indexes = list(
             range(key_count)
         )
@@ -177,13 +163,11 @@ def generate_translation(
     last_quota_error = None
 
     for index in indexes:
-
         api_key = api_keys[index]
 
         started_at = time.perf_counter()
 
         try:
-
             translated_text = (
                 _generate_with_key(
                     api_key,
@@ -213,9 +197,7 @@ def generate_translation(
             return translated_text
 
         except ClientError as error:
-
             if _is_quota_error(error):
-
                 last_quota_error = error
 
                 logger.warning(
@@ -234,7 +216,6 @@ def generate_translation(
             raise
 
         except Exception:
-
             logger.exception(
                 "Gemini Key #%d 發生未知錯誤",
                 index + 1,
