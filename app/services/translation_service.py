@@ -8,12 +8,12 @@ from app.services.gemini_service import generate_translation
 
 logger = logging.getLogger(__name__)
 
-EMPTY_TEXT_MESSAGE = "⚠️ 請輸入需要翻譯的內容。"
-TRANSLATION_FAILED_MESSAGE = "⚠️ 翻譯失敗，請稍後再試。"
-QUOTA_EXCEEDED_MESSAGE = "⚠️ 今日翻譯額度已用完，請稍後再試。"
-MODEL_UNAVAILABLE_MESSAGE = "⚠️ 翻譯模型暫時無法使用。"
-SERVICE_ERROR_MESSAGE = "⚠️ 翻譯服務暫時異常，請稍後再試。"
-SYSTEM_ERROR_MESSAGE = "⚠️ 系統暫時異常，請稍後再試。"
+EMPTY_TEXT_MESSAGE = " Please enter text to translate."
+TRANSLATION_FAILED_MESSAGE = "⚠️ Translation failed. Please try again later."
+QUOTA_EXCEEDED_MESSAGE = "⚠️ Translation limit reached. Try again later."
+MODEL_UNAVAILABLE_MESSAGE = "⚠️ Translation unavailable."
+SERVICE_ERROR_MESSAGE = "⚠️ Translation service unavailable. Try again later."
+SYSTEM_ERROR_MESSAGE = "⚠️ System error. Try again later."
 
 
 def translate(text: str) -> str:
