@@ -20,7 +20,7 @@ def detect_translation_direction(text: str) -> str:
         return "ZH-TW→TH"
 
     if english_count > max(chinese_count, thai_count) and english_count > 0:
-        return "EN→TH"
+        return "EN→ZH-TW+TH"
 
     if chinese_count > 0:
         return "ZH-TW→TH"
@@ -29,6 +29,6 @@ def detect_translation_direction(text: str) -> str:
         return "TH→ZH-TW"
 
     if english_count > 0:
-        return "EN→TH"
+        return "EN→ZH-TW+TH"
 
     return "Translator"
