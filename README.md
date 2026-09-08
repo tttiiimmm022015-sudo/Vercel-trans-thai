@@ -1,146 +1,59 @@
-# LINE Translator Bot｜Vercel 最佳化版
+# LINE Vercel 翻譯機器人修正版
 
-本專案保留原本的 Flask、LINE Messaging API、Gemini、真正 LINE mention、
-語言判斷及翻譯 Prompt，並調整成適合 Vercel Python Runtime 的結構。
+這個壓縮包修正「泰文輸入被 Gemini 原樣回傳」的問題。
 
-## 已完成的最佳化
+## 修改內容
 
-- 根目錄新增官方可辨識的 `app.py` Flask 入口
-- 新增 `vercel.json`
-- 新增 `.vercelignore`，排除測試、快取和本機檔案
-- 移除 Vercel 不需要的 `Dockerfile`、`Procfile` 和 `gunicorn`
-- 不包含 `.env`，避免金鑰上傳 GitHub
-- Gemini Client 在暖實例中快取重用
-- Vercel Logs 會顯示 Gemini 與整個 Webhook 的耗時
-- 群組／多人聊天室不再先查詢 LINE Profile，少一次外部 API 請求
-- 保留一對一聊天的 LINE 顯示名稱
-- `MAX_OUTPUT_TOKENS` 可透過環境變數調整
+1. `app/api/line_webhook.py`
+  - 將已偵測的 `direction` 傳入 `translate()`。
+2. `app/services/translation_service.py`
+  - 依固定方向建立 Prompt。
+  - 偵測中文／泰文原樣回傳。
+  - 原樣回傳時使用短 Prompt 自動重試一次。
+  - 重試仍失敗時回傳翻譯失敗訊息，不再把錯誤原文當成譯文。
+3. `app/prompts/translation_prompt.py`
+  - 在原有完整規則前後加入本次固定方向。
+  - 保留數字、金額、@Mention、人物關係及酒店／KTV 用語規則。
+4. `app/utils/language_detector.py`
+  - 英文方向名稱改成 `EN→ZH-TW+TH`，與現有 Prompt 行為一致。
 
-## 專案入口
+## 使用方式
 
-```text
-app.py
-```
+把壓縮包內的 `app` 資料夾覆蓋到 GitHub Repository 根目錄的 `app`。
 
-它會載入：
+請勿刪除或修改：
 
-```python
-from app.main import app
-```
+- `app/services/gemini_service.py`
+- Vercel Environment Variables
+- LINE Channel Secret
+- LINE Channel Access Token
+- Gemini API Keys
 
-## 上傳 GitHub
-
-解壓縮後，請把資料夾內的檔案上傳到 GitHub Repository 根目錄。
-
-確認 GitHub 最外層直接看得到：
-
-```text
-app.py
-vercel.json
-requirements.txt
-app/
-```
-
-不要讓它多包一層資料夾，也不要上傳真正的 `.env`。
-
-## Vercel 部署
-
-1. 登入 Vercel。
-2. 選擇 **Add New → Project**。
-3. 匯入 GitHub Repository。
-4. Framework Preset 選 **Other** 或保持自動偵測。
-5. Root Directory 保持 Repository 根目錄。
-6. Build Command、Output Directory、Install Command 都保持預設。
-7. 設定環境變數後按 **Deploy**。
-
-## 必要環境變數
-
-在 **Project → Settings → Environment Variables** 新增：
-
-```text
-GEMINI_API_KEY
-LINE_CHANNEL_SECRET
-LINE_CHANNEL_ACCESS_TOKEN
-GEMINI_MODEL
-MAX_OUTPUT_TOKENS
-LOG_LEVEL
-```
-
-建議值：
-
-```text
-GEMINI_MODEL=gemini-3.1-flash-lite
-MAX_OUTPUT_TOKENS=256
-LOG_LEVEL=INFO
-```
-
-修改環境變數後必須重新部署，舊 Deployment 不會自動套用新值。
-
-## LINE Webhook
-
-假設 Vercel 網址為：
-
-```text
-https://your-project.vercel.app
-```
-
-LINE Developers 的 Webhook URL 設定為：
-
-```text
-https://your-project.vercel.app/callback
-```
-
-然後：
-
-1. 按 **Verify**
-2. 開啟 **Use webhook**
-3. 關閉 LINE Official Account Manager 的自動回應，避免重複回覆
+提交到 GitHub 的 `main` 後，等待 Vercel 自動部署完成。
 
 ## 部署後測試
 
-首頁：
+|輸入              |預期輸出          |
+|----------------|--------------|
+|วันนี้ฉันยังทำงานอยู่   |我今天還在工作。      |
+|พรุ่งนี้เช้าไปที่สนามบิน|明天早上去機場。      |
+|我今天還在工作。        |วันนี้ฉันยังทำงานอยู่ |
+|ห้อง 5           |房間 5          |
+|@N. ลูกค้า2 21:42 |@N. 客人 2 21:42|
+|22:15           |22:15         |
+
+## Vercel Log 檢查
+
+正常會看到：
 
 ```text
-https://your-project.vercel.app/
+翻譯結果檢查：direction=TH→ZH-TW ... same_as_input=False
 ```
 
-健康檢查：
+如果第一次原樣回傳並成功重試，會先看到：
 
 ```text
-https://your-project.vercel.app/health
+Gemini 原樣回傳，使用固定方向短 Prompt 重試：TH→ZH-TW
 ```
 
-正常會回傳：
-
-```json
-{"status":"ok"}
-```
-
-## 查看速度
-
-到 Vercel 的 **Project → Logs**，會看到：
-
-```text
-Gemini 回應完成：model=... elapsed=3.25s
-LINE Webhook 完成：elapsed=3.62s
-```
-
-兩者差距若很小，表示主要延遲來自 Gemini；差距很大時，再檢查 LINE API
-或 Vercel 冷啟動。
-
-## 本機執行
-
-1. 將 `.env.example` 複製成 `.env`
-2. 填入金鑰
-3. 執行：
-
-```bash
-pip install -r requirements.txt
-python run.py
-```
-
-預設網址：
-
-```text
-http://localhost:8080
-```
+這次修改不會改變多 API Key 輪詢、429 cooldown 或 LINE 真正 @Mention
