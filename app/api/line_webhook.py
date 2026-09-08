@@ -84,7 +84,10 @@ def handle_text_message(event: MessageEvent) -> None:
             can_mention,
         )
 
-        translated_text = translate(user_text)
+        translated_text = translate(
+            text=user_text,
+            direction=direction,
+        )
 
         reply_text(
             reply_token=event.reply_token,
