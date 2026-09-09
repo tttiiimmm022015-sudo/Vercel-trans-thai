@@ -12,7 +12,7 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_TOKENS = 1024
-THINKING_LEVEL = "low"
+THINKING_LEVEL = "minimal"
 QUOTA_COOLDOWN_SECONDS = 60.0
 FALLBACK_MODEL = "gemini-3.1-flash-lite"
 SERVER_RETRY_DELAYS = (0.0,)
