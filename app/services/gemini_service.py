@@ -15,7 +15,7 @@ MAX_OUTPUT_TOKENS = 1024
 THINKING_LEVEL = "low"
 QUOTA_COOLDOWN_SECONDS = 60.0
 FALLBACK_MODEL = "gemini-3.1-flash-lite"
-SERVER_RETRY_DELAYS = (0.0, 0.5)
+SERVER_RETRY_DELAYS = (0.0,)
 
 # -----------------------------
 # Key 輪詢狀態
