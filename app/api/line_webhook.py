@@ -23,27 +23,48 @@ line_configuration = Configuration(
 )
 
 
-def get_sender_name(event: MessageEvent) -> str:
-    """
-    取得一對一聊天的 LINE 顯示名稱。
+def get_sender_profile(event: MessageEvent) -> tuple[str, str | None]:
+    """依聊天類型取得原訊息發送者的名稱與頭像網址。"""
 
-    群組和多人聊天室使用真正的 LINE mention，不必先呼叫 Profile API，
-    可少一次外部網路請求並降低整體延遲。
-    """
-
+    source_type = getattr(event.source, "type", "")
     user_id = getattr(event.source, "user_id", None)
+    group_id = getattr(event.source, "group_id", None)
+    room_id = getattr(event.source, "room_id", None)
+
     if not user_id:
-        return "未知使用者"
+        return "未知使用者", None
 
     try:
         with ApiClient(line_configuration) as api_client:
-            profile = MessagingApi(api_client).get_profile(user_id=user_id)
+            messaging_api = MessagingApi(api_client)
 
-        return getattr(profile, "display_name", None) or "未知使用者"
+            if source_type == "group" and group_id:
+                profile = messaging_api.get_group_member_profile(
+                    group_id=group_id,
+                    user_id=user_id,
+                )
+            elif source_type == "room" and room_id:
+                profile = messaging_api.get_room_member_profile(
+                    room_id=room_id,
+                    user_id=user_id,
+                )
+            else:
+                profile = messaging_api.get_profile(user_id=user_id)
+
+        display_name = (
+            getattr(profile, "display_name", None)
+            or "未知使用者"
+        )
+        picture_url = getattr(profile, "picture_url", None)
+        return display_name, picture_url
 
     except Exception:
-        logger.exception("取得 LINE 發送者名稱失敗：user_id=%s", user_id)
-        return "未知使用者"
+        logger.exception(
+            "取得 LINE 發送者資料失敗：source_type=%s user_id=%s",
+            source_type,
+            user_id,
+        )
+        return "未知使用者", None
 
 
 @handler.add(MessageEvent, message=TextMessageContent)
@@ -61,20 +82,13 @@ def handle_text_message(event: MessageEvent) -> None:
         room_id = getattr(event.source, "room_id", None)
 
         can_mention = source_type in ("group", "room") and bool(user_id)
-
-        # 群組／多人聊天室不需要 Profile API；一對一才取得顯示名稱。
-        sender_name = (
-            "LINE 使用者"
-            if can_mention
-            else get_sender_name(event)
-        )
-
+        sender_name, sender_icon_url = get_sender_profile(event)
         direction = detect_translation_direction(user_text)
 
         logger.info(
             (
                 "收到訊息：source_type=%s user_id=%s group_id=%s "
-                "room_id=%s direction=%s can_mention=%s"
+                "room_id=%s direction=%s can_mention=%s has_avatar=%s"
             ),
             source_type,
             user_id,
@@ -82,6 +96,7 @@ def handle_text_message(event: MessageEvent) -> None:
             room_id,
             direction,
             can_mention,
+            bool(sender_icon_url),
         )
 
         translated_text = translate(
@@ -93,6 +108,8 @@ def handle_text_message(event: MessageEvent) -> None:
             reply_token=event.reply_token,
             text=translated_text,
             sender_name=sender_name,
+            sender_icon_url=sender_icon_url,
+            direction=direction,
             user_id=user_id,
             can_mention=can_mention,
         )
