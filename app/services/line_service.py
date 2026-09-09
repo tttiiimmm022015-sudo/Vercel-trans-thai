@@ -6,6 +6,7 @@ from linebot.v3.messaging import (
     MentionSubstitutionObject,
     MessagingApi,
     ReplyMessageRequest,
+    Sender,
     TextMessage,
     TextMessageV2,
     UserMentionTarget,
@@ -25,31 +26,50 @@ def get_line_configuration() -> Configuration:
     )
 
 
+def _build_custom_sender(
+    direction: str,
+    sender_icon_url: str | None,
+) -> Sender | None:
+    """建立翻譯訊息專用名稱，並套用原發話者頭像。"""
+
+    if not sender_icon_url:
+        return None
+
+    display_direction = (direction or "Translator").strip()[:20]
+
+    return Sender(
+        name=display_direction,
+        icon_url=sender_icon_url,
+    )
+
+
 def reply_text(
     reply_token: str,
     text: str,
     sender_name: str,
+    sender_icon_url: str | None = None,
+    direction: str = "Translator",
     user_id: str | None = None,
     can_mention: bool = False,
 ) -> None:
     """
     回覆 LINE 翻譯訊息。
 
-    群組／多人聊天室：
-    真正標記原訊息發送者。
-
-    一對一聊天室：
-    顯示普通使用者名稱。
+    有取得頭像時，翻譯訊息會使用原發話者頭像；取得失敗時，
+    自動使用 LINE 官方帳號原本的名稱與頭像。
     """
 
     display_name = (sender_name or "未知使用者").strip()
     translated_text = (text or "").strip()
+    custom_sender = _build_custom_sender(
+        direction=direction,
+        sender_icon_url=sender_icon_url,
+    )
 
     with ApiClient(get_line_configuration()) as api_client:
         messaging_api = MessagingApi(api_client)
 
         if can_mention and user_id:
-            # Text Message v2 的 {user} 會被替換成真正的 LINE 標記
             message = TextMessageV2(
                 text=(
                     "{user} :\n "
@@ -62,15 +82,16 @@ def reply_text(
                         )
                     )
                 },
+                sender=custom_sender,
             )
 
         else:
-            # 一對一聊天不能使用群組標記，改為普通文字名稱
             message = TextMessage(
                 text=(
                     f"{display_name}:\n "
                     f"{translated_text}"
-                )
+                ),
+                sender=custom_sender,
             )
 
         messaging_api.reply_message(
