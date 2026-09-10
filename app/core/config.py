@@ -7,8 +7,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
-DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 10000
 DEFAULT_GEMINI_KEY_COOLDOWN_SECONDS = 60.0
 DEFAULT_MAX_OUTPUT_TOKENS = 1024
