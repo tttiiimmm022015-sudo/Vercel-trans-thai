@@ -144,6 +144,7 @@ def _request_translation(
     """發送一次請求；不重試同一個慢請求。"""
 
     started_at = time.monotonic()
+
     try:
         response = client.models.generate_content(
             model=model,
@@ -175,6 +176,7 @@ def _request_translation(
         return translated_text
 
     diagnostics = _get_response_diagnostics(response)
+
     logger.warning(
         (
             "Gemini 回傳空白內容：model=%s elapsed=%.2fs "
@@ -189,6 +191,7 @@ def _request_translation(
         diagnostics["prompt_feedback"],
         diagnostics["usage_metadata"],
     )
+
     raise EmptyGeminiResponseError(
         f"Gemini 回傳空白內容：model={model}, "
         f"finish_reasons={diagnostics['finish_reasons']}"
@@ -204,7 +207,10 @@ def _generate_with_model(
     """使用指定模型；只有 Key 或額度錯誤才嘗試下一把 Key。"""
 
     last_error: Exception | None = None
-    indexes = _get_available_key_indexes(len(api_keys), model)
+    indexes = _get_available_key_indexes(
+        len(api_keys),
+        model,
+    )
 
     for attempt, key_index in enumerate(indexes, start=1):
         logger.info(
@@ -214,6 +220,7 @@ def _generate_with_model(
             attempt,
             len(indexes),
         )
+
         client = _build_client(
             api_key=api_keys[key_index],
             timeout_ms=settings.gemini_request_timeout_ms,
@@ -226,6 +233,7 @@ def _generate_with_model(
                 prompt=prompt,
                 settings=settings,
             )
+
         except ClientError as error:
             last_error = error
 
@@ -233,8 +241,11 @@ def _generate_with_model(
                 _mark_key_cooldown(
                     model=model,
                     key_index=key_index,
-                    cooldown_seconds=settings.gemini_key_cooldown_seconds,
+                    cooldown_seconds=(
+                        settings.gemini_key_cooldown_seconds
+                    ),
                 )
+
                 logger.warning(
                     (
                         "Gemini Key 額度不足，嘗試下一把："
@@ -250,7 +261,10 @@ def _generate_with_model(
                 raise
 
             logger.warning(
-                "Gemini Key 呼叫失敗，嘗試下一把：model=%s key_index=%d error=%s",
+                (
+                    "Gemini Key 呼叫失敗，嘗試下一把："
+                    "model=%s key_index=%d error=%s"
+                ),
                 model,
                 key_index,
                 error,
@@ -281,33 +295,50 @@ def generate_translation(prompt: str) -> str:
             prompt=prompt,
             settings=settings,
         )
+
     except (
         EmptyGeminiResponseError,
         ServerError,
         GeminiRequestTimeoutError,
         NoAvailableGeminiKeyError,
     ):
-
+        if (
+            settings.gemini_fallback_model
+            == settings.gemini_model
+        ):
+            raise
 
         logger.warning(
-            "Gemini 主模型失敗，改用備援模型：primary=%s fallback=%s",
+            (
+                "Gemini 主模型失敗，改用備援模型："
+                "primary=%s fallback=%s"
+            ),
             settings.gemini_model,
             settings.gemini_fallback_model,
         )
+
         return _generate_with_model(
             api_keys=api_keys,
             model=settings.gemini_fallback_model,
             prompt=prompt,
             settings=settings,
         )
+
     except ClientError as error:
         if not _is_quota_error(error):
+            raise
+
+        if (
+            settings.gemini_fallback_model
+            == settings.gemini_model
+        ):
             raise
 
         logger.warning(
             "Gemini 主模型所有 Key 額度不足，改用備援模型：%s",
             settings.gemini_fallback_model,
         )
+
         return _generate_with_model(
             api_keys=api_keys,
             model=settings.gemini_fallback_model,
