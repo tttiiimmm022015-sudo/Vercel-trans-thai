@@ -1,5 +1,5 @@
 import logging
-import random
+
 import threading
 import time
 
@@ -28,7 +28,7 @@ class NoAvailableGeminiKeyError(RuntimeError):
 
 
 _lock = threading.Lock()
-_random = random.SystemRandom()
+
 
 # (model, key_index) -> cooldown 結束時間。
 # 此狀態只用於目前 Vercel instance；每次請求仍會自行嘗試其他 Key。
@@ -53,7 +53,7 @@ def _get_available_key_indexes(
     key_count: int,
     model: str,
 ) -> list[int]:
-    """隨機排列目前可用 Key，適合無狀態的 Vercel Functions。"""
+    """依照設定順序取得目前可用的 API Key。"""
 
     if key_count <= 0:
         return []
@@ -74,7 +74,7 @@ def _get_available_key_indexes(
             if (model, index) not in _key_cooldowns
         ]
 
-    _random.shuffle(indexes)
+
     return indexes
 
 
