@@ -15,7 +15,14 @@ MAX_OUTPUT_TOKENS = 1024
 THINKING_LEVEL = "minimal"
 QUOTA_COOLDOWN_SECONDS = 60.0
 FALLBACK_MODEL = "gemini-3.1-flash-lite"
-SERVER_RETRY_DELAYS = (0.0,)
+
+# 第一次立即呼叫；遇到 503 或空白回覆，0.5 秒後再試一次。
+SERVER_RETRY_DELAYS = (0.0, 0.5)
+
+
+class EmptyGeminiResponseError(RuntimeError):
+    """Gemini 請求成功，但沒有回傳任何翻譯文字。"""
+
 
 # -----------------------------
 # Key 使用狀態
@@ -30,6 +37,7 @@ _key_cooldowns: dict[int, float] = {}
 
 def _is_quota_error(error: Exception) -> bool:
     message = str(error)
+
     return (
         "429" in message
         or "RESOURCE_EXHAUSTED" in message
@@ -39,7 +47,11 @@ def _is_quota_error(error: Exception) -> bool:
 
 def _is_model_unavailable_error(error: Exception) -> bool:
     message = str(error)
-    return "404" in message or "NOT_FOUND" in message
+
+    return (
+        "404" in message
+        or "NOT_FOUND" in message
+    )
 
 
 def _get_available_key_indexes(key_count: int) -> list[int]:
@@ -58,6 +70,7 @@ def _get_available_key_indexes(key_count: int) -> list[int]:
             for index, cooldown_until in _key_cooldowns.items()
             if cooldown_until <= now
         ]
+
         for index in expired_indexes:
             _key_cooldowns.pop(index, None)
 
@@ -65,6 +78,7 @@ def _get_available_key_indexes(key_count: int) -> list[int]:
             (_current_index + offset) % key_count
             for offset in range(key_count)
         ]
+
         available_indexes = [
             index
             for index in ordered_indexes
@@ -75,7 +89,7 @@ def _get_available_key_indexes(key_count: int) -> list[int]:
         if available_indexes:
             return available_indexes
 
-        # 全部都在 cooldown 時，不重試主模型，直接交給備援模型。
+        # 全部都在 cooldown 時，直接交給備援模型。
         return []
 
 
@@ -86,7 +100,10 @@ def _mark_key_cooldown(key_index: int) -> None:
         )
 
 
-def _switch_to_next_key(key_index: int, key_count: int) -> None:
+def _switch_to_next_key(
+    key_index: int,
+    key_count: int,
+) -> None:
     """目前 Key 額度用完後，才固定切換到下一把 Key。"""
 
     global _current_index
@@ -96,7 +113,7 @@ def _switch_to_next_key(key_index: int, key_count: int) -> None:
 
 
 def _build_generation_config() -> types.GenerateContentConfig:
-    """3.5 Flash 翻譯設定：低思考兼顧速度，並預留思考 Token。"""
+    """Gemini Flash 翻譯設定：低思考兼顧速度。"""
 
     return types.GenerateContentConfig(
         max_output_tokens=MAX_OUTPUT_TOKENS,
@@ -106,17 +123,92 @@ def _build_generation_config() -> types.GenerateContentConfig:
     )
 
 
+def _get_response_diagnostics(response: object) -> dict[str, object]:
+    """擷取空白回覆的診斷資訊，避免直接記錄完整回覆內容。"""
+
+    candidates = getattr(response, "candidates", None) or []
+
+    finish_reasons: list[str] = []
+    candidate_part_counts: list[int] = []
+
+    for candidate in candidates:
+        finish_reason = getattr(
+            candidate,
+            "finish_reason",
+            None,
+        )
+
+        if finish_reason is not None:
+            finish_reasons.append(str(finish_reason))
+
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) or []
+
+        candidate_part_counts.append(len(parts))
+
+    return {
+        "candidate_count": len(candidates),
+        "finish_reasons": finish_reasons or ["UNKNOWN"],
+        "candidate_part_counts": candidate_part_counts,
+        "prompt_feedback": getattr(
+            response,
+            "prompt_feedback",
+            None,
+        ),
+        "usage_metadata": getattr(
+            response,
+            "usage_metadata",
+            None,
+        ),
+    }
+
+
 def _request_translation(
     client: genai.Client,
     model: str,
     prompt: str,
 ) -> str:
+    """向 Gemini 發送翻譯請求，空白回覆視為錯誤。"""
+
     response = client.models.generate_content(
         model=model,
         contents=prompt,
         config=_build_generation_config(),
     )
-    return (getattr(response, "text", "") or "").strip()
+
+    translated_text = (
+        getattr(response, "text", "") or ""
+    ).strip()
+
+    if translated_text:
+        return translated_text
+
+    diagnostics = _get_response_diagnostics(response)
+
+    logger.warning(
+        (
+            "Gemini 回傳空白內容：model=%s "
+            "candidate_count=%s "
+            "finish_reasons=%s "
+            "candidate_part_counts=%s "
+            "prompt_feedback=%s "
+            "usage_metadata=%s"
+        ),
+        model,
+        diagnostics["candidate_count"],
+        diagnostics["finish_reasons"],
+        diagnostics["candidate_part_counts"],
+        diagnostics["prompt_feedback"],
+        diagnostics["usage_metadata"],
+    )
+
+    raise EmptyGeminiResponseError(
+        (
+            "Gemini 回傳空白內容："
+            f"model={model}, "
+            f"finish_reasons={diagnostics['finish_reasons']}"
+        )
+    )
 
 
 def _generate_with_server_retry(
@@ -124,23 +216,50 @@ def _generate_with_server_retry(
     model: str,
     prompt: str,
 ) -> str:
-    """503 時以短暫退避重試，避免單次服務忙碌造成翻譯失敗。"""
+    """遇到 503 或空白內容時，短暫退避後重試。"""
 
-    last_error: ServerError | None = None
+    last_error: Exception | None = None
+    attempt_count = len(SERVER_RETRY_DELAYS)
 
-    for attempt, delay_seconds in enumerate(SERVER_RETRY_DELAYS, start=1):
+    for attempt, delay_seconds in enumerate(
+        SERVER_RETRY_DELAYS,
+        start=1,
+    ):
         if delay_seconds > 0:
             time.sleep(delay_seconds)
 
         try:
-            return _request_translation(client, model, prompt)
+            return _request_translation(
+                client=client,
+                model=model,
+                prompt=prompt,
+            )
+
         except ServerError as error:
             last_error = error
+
             logger.warning(
-                "Gemini 服務暫時不可用：model=%s attempt=%d/%d error=%s",
+                (
+                    "Gemini 服務暫時不可用："
+                    "model=%s attempt=%d/%d error=%s"
+                ),
                 model,
                 attempt,
-                len(SERVER_RETRY_DELAYS),
+                attempt_count,
+                error,
+            )
+
+        except EmptyGeminiResponseError as error:
+            last_error = error
+
+            logger.warning(
+                (
+                    "Gemini 回傳空白，準備重試："
+                    "model=%s attempt=%d/%d error=%s"
+                ),
+                model,
+                attempt,
+                attempt_count,
                 error,
             )
 
@@ -154,7 +273,7 @@ def _generate_with_fallback_model(
     api_keys: tuple[str, ...] | list[str],
     prompt: str,
 ) -> str:
-    """主模型所有 Key 額度不足時，使用備援模型逐一嘗試。"""
+    """主模型失敗時，使用備援模型逐一嘗試 API Key。"""
 
     last_error: Exception | None = None
 
@@ -162,34 +281,63 @@ def _generate_with_fallback_model(
         client = genai.Client(api_key=api_key)
 
         try:
-            fallback_text = _request_translation(
+            fallback_text = _generate_with_server_retry(
                 client=client,
                 model=FALLBACK_MODEL,
                 prompt=prompt,
             )
+
             logger.info(
                 (
-                    "Gemini 備援翻譯完成：model=%s "
-                    "key_index=%d output_length=%d"
+                    "Gemini 備援翻譯完成："
+                    "model=%s key_index=%d output_length=%d"
                 ),
                 FALLBACK_MODEL,
                 key_index,
                 len(fallback_text),
             )
+
             return fallback_text
+
+        except EmptyGeminiResponseError as error:
+            last_error = error
+
+            logger.warning(
+                (
+                    "Gemini 備援模型回傳空白："
+                    "model=%s key_index=%d error=%s"
+                ),
+                FALLBACK_MODEL,
+                key_index,
+                error,
+            )
+
+            # 空白通常不是 Key 問題，但可再嘗試下一把 Key。
+            continue
 
         except ClientError as error:
             last_error = error
+
             if _is_quota_error(error):
                 logger.warning(
-                    "Gemini 備援模型額度不足：key_index=%d",
+                    (
+                        "Gemini 備援模型額度不足："
+                        "model=%s key_index=%d"
+                    ),
+                    FALLBACK_MODEL,
                     key_index,
                 )
                 continue
+
             if _is_model_unavailable_error(error):
                 raise
+
             logger.warning(
-                "Gemini 備援 Key 呼叫失敗：key_index=%d error=%s",
+                (
+                    "Gemini 備援 Key 呼叫失敗："
+                    "model=%s key_index=%d error=%s"
+                ),
+                FALLBACK_MODEL,
                 key_index,
                 error,
             )
@@ -197,8 +345,13 @@ def _generate_with_fallback_model(
 
         except ServerError as error:
             last_error = error
+
             logger.warning(
-                "Gemini 備援模型暫時不可用：key_index=%d error=%s",
+                (
+                    "Gemini 備援模型暫時不可用："
+                    "model=%s key_index=%d error=%s"
+                ),
+                FALLBACK_MODEL,
                 key_index,
                 error,
             )
@@ -207,11 +360,13 @@ def _generate_with_fallback_model(
     if last_error is not None:
         raise last_error
 
-    raise RuntimeError("Gemini 備援模型沒有可用的 API Key")
+    raise RuntimeError(
+        "Gemini 備援模型沒有可用的 API Key"
+    )
 
 
 def generate_translation(prompt: str) -> str:
-    """固定使用目前 Key；額度用完後才切換到下一把 Key。"""
+    """固定使用目前 Key；額度用完後才切換下一把 Key。"""
 
     settings = get_settings()
     api_keys = settings.gemini_api_keys
@@ -220,44 +375,79 @@ def generate_translation(prompt: str) -> str:
         raise RuntimeError("沒有可用的 Gemini API Key")
 
     last_error: Exception | None = None
+    available_key_indexes = _get_available_key_indexes(
+        len(api_keys)
+    )
 
-    for key_index in _get_available_key_indexes(len(api_keys)):
+    for key_index in available_key_indexes:
         try:
-            client = genai.Client(api_key=api_keys[key_index])
+            client = genai.Client(
+                api_key=api_keys[key_index]
+            )
+
             translated_text = _generate_with_server_retry(
                 client=client,
                 model=settings.gemini_model,
                 prompt=prompt,
             )
+
             logger.info(
-                "Gemini 翻譯完成：model=%s key_index=%d output_length=%d",
+                (
+                    "Gemini 翻譯完成："
+                    "model=%s key_index=%d output_length=%d"
+                ),
                 settings.gemini_model,
                 key_index,
                 len(translated_text),
             )
+
             return translated_text
 
-        except ServerError:
+        except EmptyGeminiResponseError:
             logger.warning(
                 (
-                    "Gemini 主模型回傳 503，"
+                    "Gemini 主模型連續回傳空白，"
                     "改用備援模型：primary=%s fallback=%s"
                 ),
                 settings.gemini_model,
                 FALLBACK_MODEL,
             )
-            return _generate_with_fallback_model(api_keys, prompt)
+
+            return _generate_with_fallback_model(
+                api_keys=api_keys,
+                prompt=prompt,
+            )
+
+        except ServerError:
+            logger.warning(
+                (
+                    "Gemini 主模型連續回傳 503，"
+                    "改用備援模型：primary=%s fallback=%s"
+                ),
+                settings.gemini_model,
+                FALLBACK_MODEL,
+            )
+
+            return _generate_with_fallback_model(
+                api_keys=api_keys,
+                prompt=prompt,
+            )
 
         except ClientError as error:
             last_error = error
 
             if _is_quota_error(error):
                 _mark_key_cooldown(key_index)
-                _switch_to_next_key(key_index, len(api_keys))
+                _switch_to_next_key(
+                    key_index,
+                    len(api_keys),
+                )
+
                 logger.warning(
                     (
                         "Gemini Key 額度不足，切換下一把："
-                        "key_index=%d next_key_index=%d cooldown_seconds=%.0f"
+                        "key_index=%d next_key_index=%d "
+                        "cooldown_seconds=%.0f"
                     ),
                     key_index,
                     (key_index + 1) % len(api_keys),
@@ -265,22 +455,36 @@ def generate_translation(prompt: str) -> str:
                 )
                 continue
 
-            # 模型名稱錯誤與 Key 無關，不必把所有 Key 都試一遍。
+            # 模型名稱錯誤與 Key 無關，
+            # 不需要把全部 Key 都試一遍。
             if _is_model_unavailable_error(error):
                 raise
 
             logger.warning(
-                "Gemini Key 呼叫失敗，嘗試下一把：key_index=%d error=%s",
+                (
+                    "Gemini Key 呼叫失敗，嘗試下一把："
+                    "key_index=%d error=%s"
+                ),
                 key_index,
                 error,
             )
             continue
 
-    if last_error is not None and not _is_quota_error(last_error):
+    if (
+        last_error is not None
+        and not _is_quota_error(last_error)
+    ):
         raise last_error
 
     logger.warning(
-        "Gemini 主模型所有 Key 額度不足，改用備援模型：%s",
+        (
+            "Gemini 主模型沒有可用 Key，"
+            "改用備援模型：%s"
+        ),
         FALLBACK_MODEL,
     )
-    return _generate_with_fallback_model(api_keys, prompt)
+
+    return _generate_with_fallback_model(
+        api_keys=api_keys,
+        prompt=prompt,
+    )
