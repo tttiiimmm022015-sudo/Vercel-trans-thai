@@ -1,35 +1,20 @@
-# LINE Vercel 翻譯機器人修正版
+# LINE Vercel 翻譯機器人
 
-這個壓縮包修正「泰文輸入被 Gemini 原樣回傳」的問題。
+使用 Gemini 進行繁體中文、泰文與英文翻譯的 LINE Bot。
 
 ## 修改內容
 
-1. `app/api/line_webhook.py`
-  - 將已偵測的 `direction` 傳入 `translate()`。
-2. `app/services/translation_service.py`
-  - 依固定方向建立 Prompt。
-  - 偵測中文／泰文原樣回傳。
-  - 原樣回傳時使用短 Prompt 自動重試一次。
-  - 重試仍失敗時回傳翻譯失敗訊息，不再把錯誤原文當成譯文。
-3. `app/prompts/translation_prompt.py`
-  - 在原有完整規則前後加入本次固定方向。
-  - 保留數字、金額、@Mention、人物關係及酒店／KTV 用語規則。
-4. `app/utils/language_detector.py`
-  - 英文方向名稱改成 `EN→ZH-TW+TH`，與現有 Prompt 行為一致。
+1. 多 Project Gemini API Key 平均分配。
+2. 429 自動切換下一把 Key。
+3. 主模型空白、503 或逾時時自動切換備援模型。
+4. 固定中泰英翻譯方向，並偵測原樣回傳。
+5. 保留數字、金額、@Mention、人物關係及 KTV 常用語規則。
+6. 使用原發話者頭像顯示翻譯結果。
 
 ## 使用方式
 
-把壓縮包內的 `app` 資料夾覆蓋到 GitHub Repository 根目錄的 `app`。
-
-請勿刪除或修改：
-
-- `app/services/gemini_service.py`
-- Vercel Environment Variables
-- LINE Channel Secret
-- LINE Channel Access Token
-- Gemini API Keys
-
-提交到 GitHub 的 `main` 後，等待 Vercel 自動部署完成。
+在 Vercel 設定 `.env.example` 列出的 Environment Variables，然後部署
+GitHub Repository 的 `main` 分支。
 
 ## 部署後測試
 
@@ -56,4 +41,4 @@
 Gemini 原樣回傳，使用固定方向短 Prompt 重試：TH→ZH-TW
 ```
 
-這次修改不會改變多 API Key 輪詢、429 cooldown 或 LINE 真正 @Mention
+正常 Log 也會顯示 `key_index`、模型名稱與 Gemini API 實際耗時。

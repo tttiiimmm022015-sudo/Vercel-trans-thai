@@ -8,6 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 10000
+DEFAULT_GEMINI_KEY_COOLDOWN_SECONDS = 60.0
+DEFAULT_MAX_OUTPUT_TOKENS = 1024
 MAX_NUMBERED_GEMINI_KEYS = 20
 
 
@@ -57,6 +61,10 @@ class Settings:
     line_channel_secret: str
     line_channel_access_token: str
     gemini_model: str = DEFAULT_GEMINI_MODEL
+    gemini_fallback_model: str = DEFAULT_GEMINI_FALLBACK_MODEL
+    gemini_request_timeout_ms: int = DEFAULT_GEMINI_REQUEST_TIMEOUT_MS
+    gemini_key_cooldown_seconds: float = DEFAULT_GEMINI_KEY_COOLDOWN_SECONDS
+    max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
     host: str = "0.0.0.0"
     port: int = 8080
     log_level: str = "INFO"
@@ -81,6 +89,31 @@ class Settings:
                 os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip()
                 or DEFAULT_GEMINI_MODEL
             ),
+            gemini_fallback_model=(
+                os.getenv(
+                    "GEMINI_FALLBACK_MODEL",
+                    DEFAULT_GEMINI_FALLBACK_MODEL,
+                ).strip()
+                or DEFAULT_GEMINI_FALLBACK_MODEL
+            ),
+            gemini_request_timeout_ms=int(
+                os.getenv(
+                    "GEMINI_REQUEST_TIMEOUT_MS",
+                    str(DEFAULT_GEMINI_REQUEST_TIMEOUT_MS),
+                )
+            ),
+            gemini_key_cooldown_seconds=float(
+                os.getenv(
+                    "GEMINI_KEY_COOLDOWN_SECONDS",
+                    str(DEFAULT_GEMINI_KEY_COOLDOWN_SECONDS),
+                )
+            ),
+            max_output_tokens=int(
+                os.getenv(
+                    "MAX_OUTPUT_TOKENS",
+                    str(DEFAULT_MAX_OUTPUT_TOKENS),
+                )
+            ),
             host=os.getenv("HOST", "0.0.0.0").strip(),
             port=int(os.getenv("PORT", "8080")),
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
@@ -103,6 +136,13 @@ class Settings:
         if missing:
             names = ", ".join(missing)
             raise RuntimeError(f"缺少必要環境變數：{names}")
+
+        if self.gemini_request_timeout_ms <= 0:
+            raise RuntimeError("GEMINI_REQUEST_TIMEOUT_MS 必須大於 0")
+        if self.gemini_key_cooldown_seconds < 0:
+            raise RuntimeError("GEMINI_KEY_COOLDOWN_SECONDS 不得小於 0")
+        if self.max_output_tokens <= 0:
+            raise RuntimeError("MAX_OUTPUT_TOKENS 必須大於 0")
 
 
 @lru_cache(maxsize=1)

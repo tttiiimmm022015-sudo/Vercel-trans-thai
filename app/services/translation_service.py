@@ -1,10 +1,14 @@
 import logging
 import re
 
-from google.genai.errors import ClientError
+from google.genai.errors import ClientError, ServerError
 
 from app.prompts.translation_prompt import build_translation_prompt
-from app.services.gemini_service import generate_translation
+from app.services.gemini_service import (
+    EmptyGeminiResponseError,
+    GeminiRequestTimeoutError,
+    generate_translation,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -220,6 +224,14 @@ def translate(
             translated_text = retry_result
 
         return translated_text
+
+    except EmptyGeminiResponseError:
+        logger.warning("Gemini 主模型與備援模型都回傳空白")
+        return TRANSLATION_FAILED_MESSAGE
+
+    except (ServerError, GeminiRequestTimeoutError):
+        logger.exception("Gemini 服務暫時不可用或請求逾時")
+        return SERVICE_ERROR_MESSAGE
 
     except ClientError as error:
         error_message = str(error)

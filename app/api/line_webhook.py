@@ -23,6 +23,30 @@ line_configuration = Configuration(
 )
 
 
+def get_text_for_language_detection(
+    message: TextMessageContent,
+    text: str,
+) -> str:
+    """移除 LINE Mention 顯示名稱，避免英文姓名影響語言判斷。"""
+
+    mention = getattr(message, "mention", None)
+    mentionees = getattr(mention, "mentionees", None) or []
+    ranges: list[tuple[int, int]] = []
+
+    for mentionee in mentionees:
+        index = getattr(mentionee, "index", None)
+        length = getattr(mentionee, "length", None)
+        if isinstance(index, int) and isinstance(length, int) and length > 0:
+            ranges.append((index, index + length))
+
+    detection_text = text
+    for start, end in sorted(ranges, reverse=True):
+        if 0 <= start < end <= len(detection_text):
+            detection_text = detection_text[:start] + detection_text[end:]
+
+    return detection_text
+
+
 def get_sender_profile(event: MessageEvent) -> tuple[str, str | None]:
     """依聊天類型取得原訊息發送者的名稱與頭像網址。"""
 
@@ -83,7 +107,11 @@ def handle_text_message(event: MessageEvent) -> None:
 
         can_mention = source_type in ("group", "room") and bool(user_id)
         sender_name, sender_icon_url = get_sender_profile(event)
-        direction = detect_translation_direction(user_text)
+        detection_text = get_text_for_language_detection(
+            message=event.message,
+            text=user_text,
+        )
+        direction = detect_translation_direction(detection_text)
 
         logger.info(
             (
