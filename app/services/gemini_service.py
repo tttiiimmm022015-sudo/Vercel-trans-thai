@@ -287,8 +287,7 @@ def generate_translation(prompt: str) -> str:
         GeminiRequestTimeoutError,
         NoAvailableGeminiKeyError,
     ):
-        if settings.gemini_fallback_model == settings.gemini_model:
-            raise
+
 
         logger.warning(
             "Gemini 主模型失敗，改用備援模型：primary=%s fallback=%s",
