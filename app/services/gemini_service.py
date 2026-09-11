@@ -1,5 +1,4 @@
 import logging
-
 import threading
 import time
 
@@ -28,7 +27,6 @@ class NoAvailableGeminiKeyError(RuntimeError):
 
 
 _lock = threading.Lock()
-
 
 # (model, key_index) -> cooldown 結束時間。
 # 此狀態只用於目前 Vercel instance；每次請求仍會自行嘗試其他 Key。
@@ -59,12 +57,14 @@ def _get_available_key_indexes(
         return []
 
     now = time.monotonic()
+
     with _lock:
         expired_states = [
             state
             for state, cooldown_until in _key_cooldowns.items()
             if cooldown_until <= now
         ]
+
         for state in expired_states:
             _key_cooldowns.pop(state, None)
 
@@ -73,7 +73,6 @@ def _get_available_key_indexes(
             for index in range(key_count)
             if (model, index) not in _key_cooldowns
         ]
-
 
     return indexes
 
@@ -119,6 +118,7 @@ def _get_response_diagnostics(
 
     for candidate in candidates:
         finish_reason = getattr(candidate, "finish_reason", None)
+
         if finish_reason is not None:
             finish_reasons.append(str(finish_reason))
 
@@ -151,24 +151,33 @@ def _request_translation(
             contents=prompt,
             config=_build_generation_config(settings),
         )
+
     except httpx.TimeoutException as error:
         elapsed_seconds = time.monotonic() - started_at
+
         logger.warning(
             "Gemini 請求逾時：model=%s elapsed=%.2fs timeout_ms=%d",
             model,
             elapsed_seconds,
             settings.gemini_request_timeout_ms,
         )
+
         raise GeminiRequestTimeoutError(
-            f"Gemini 請求超過 {settings.gemini_request_timeout_ms}ms"
+            f"Gemini 請求超過 "
+            f"{settings.gemini_request_timeout_ms}ms"
         ) from error
 
     elapsed_seconds = time.monotonic() - started_at
-    translated_text = (getattr(response, "text", "") or "").strip()
+    translated_text = (
+        getattr(response, "text", "") or ""
+    ).strip()
 
     if translated_text:
         logger.info(
-            "Gemini API 回覆完成：model=%s elapsed=%.2fs output_length=%d",
+            (
+                "Gemini API 回覆完成："
+                "model=%s elapsed=%.2fs output_length=%d"
+            ),
             model,
             elapsed_seconds,
             len(translated_text),
@@ -181,7 +190,8 @@ def _request_translation(
         (
             "Gemini 回傳空白內容：model=%s elapsed=%.2fs "
             "candidate_count=%s finish_reasons=%s "
-            "candidate_part_counts=%s prompt_feedback=%s usage_metadata=%s"
+            "candidate_part_counts=%s prompt_feedback=%s "
+            "usage_metadata=%s"
         ),
         model,
         elapsed_seconds,
@@ -204,9 +214,11 @@ def _generate_with_model(
     prompt: str,
     settings: Settings,
 ) -> str:
-    """使用指定模型；只有 Key 或額度錯誤才嘗試下一把 Key。"""
+    """使用指定模型；429 換 Key，暫時性錯誤最多換 Key 重試一次。"""
 
     last_error: Exception | None = None
+    transient_retry_count = 0
+
     indexes = _get_available_key_indexes(
         len(api_keys),
         model,
@@ -214,7 +226,10 @@ def _generate_with_model(
 
     for attempt, key_index in enumerate(indexes, start=1):
         logger.info(
-            "Gemini 選擇 API Key：model=%s key_index=%d attempt=%d/%d",
+            (
+                "Gemini 選擇 API Key："
+                "model=%s key_index=%d attempt=%d/%d"
+            ),
             model,
             key_index,
             attempt,
@@ -234,6 +249,31 @@ def _generate_with_model(
                 settings=settings,
             )
 
+        except (
+            ServerError,
+            GeminiRequestTimeoutError,
+        ) as error:
+            last_error = error
+
+            # 503、504 或逾時只換下一把 Key 重試一次，
+            # 避免嘗試全部 Key 導致 LINE 等待過久。
+            if transient_retry_count >= 1:
+                raise
+
+            transient_retry_count += 1
+
+            logger.warning(
+                (
+                    "Gemini 服務暫時不穩，換下一把 Key 重試："
+                    "model=%s key_index=%d retry=%d/1 error=%s"
+                ),
+                model,
+                key_index,
+                transient_retry_count,
+                error,
+            )
+            continue
+
         except ClientError as error:
             last_error = error
 
@@ -249,7 +289,8 @@ def _generate_with_model(
                 logger.warning(
                     (
                         "Gemini Key 額度不足，嘗試下一把："
-                        "model=%s key_index=%d cooldown_seconds=%.0f"
+                        "model=%s key_index=%d "
+                        "cooldown_seconds=%.0f"
                     ),
                     model,
                     key_index,
@@ -280,7 +321,7 @@ def _generate_with_model(
 
 
 def generate_translation(prompt: str) -> str:
-    """平均分配 Key；429 換 Key，空白、503 或逾時改用備援模型。"""
+    """依序使用 Key；暫時性錯誤重試一次後改用備援模型。"""
 
     settings = get_settings()
     api_keys = settings.gemini_api_keys
@@ -335,7 +376,10 @@ def generate_translation(prompt: str) -> str:
             raise
 
         logger.warning(
-            "Gemini 主模型所有 Key 額度不足，改用備援模型：%s",
+            (
+                "Gemini 主模型所有 Key 額度不足，"
+                "改用備援模型：%s"
+            ),
             settings.gemini_fallback_model,
         )
 
