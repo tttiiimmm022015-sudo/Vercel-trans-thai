@@ -144,3 +144,4 @@ def handle_text_message(event: MessageEvent) -> None:
 
     except Exception:
         logger.exception("處理 LINE 訊息失敗")
+        raise
