@@ -1,4 +1,5 @@
 import logging
+import re
 
 from linebot.v3 import WebhookHandler
 from linebot.v3.messaging import (
@@ -111,6 +112,12 @@ def handle_text_message(event: MessageEvent) -> None:
             message=event.message,
             text=user_text,
         )
+        if not re.search(
+            r"[A-Za-z\u0E00-\u0E7F\u3400-\u4DBF\u4E00-\u9FFF]",
+            detection_text,
+        ):
+            logger.info("略過不含可翻譯文字的訊息")
+            return
         direction = detect_translation_direction(detection_text)
 
         logger.info(
