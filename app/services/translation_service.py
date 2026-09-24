@@ -7,7 +7,13 @@ from app.prompts.translation_prompt import build_translation_prompt
 from app.services.gemini_service import (
     EmptyGeminiResponseError,
     GeminiRequestTimeoutError,
+    NoAvailableGeminiKeyError,
     generate_translation,
+)
+from app.services.google_translate_service import (
+    GoogleTranslateError,
+    GoogleTranslateNotConfiguredError,
+    translate_with_google,
 )
 
 
@@ -126,6 +132,62 @@ def _build_retry_prompt(
 """
 
 
+def _try_google_fallback(
+    text: str,
+    direction: str,
+    reason: str,
+) -> str | None:
+    """Gemini 全部失敗時，嘗試 Apps Script LanguageApp。"""
+
+    logger.warning(
+        (
+            "啟用 Google Apps Script 翻譯備援："
+            "direction=%s input_length=%d reason=%s"
+        ),
+        direction,
+        len(text),
+        reason,
+    )
+
+    try:
+        translated_text = translate_with_google(
+            text=text,
+            direction=direction,
+        )
+
+    except GoogleTranslateNotConfiguredError:
+        logger.info("Google Apps Script 翻譯備援未啟用或設定不完整")
+        return None
+
+    except GoogleTranslateError as error:
+        logger.warning(
+            "Google Apps Script 翻譯備援失敗：error_type=%s",
+            type(error).__name__,
+        )
+        return None
+
+    if _translation_was_not_applied(
+        original=text,
+        translated=translated_text,
+        direction=direction,
+    ):
+        logger.warning(
+            "Google Apps Script 翻譯備援仍原樣回傳：direction=%s",
+            direction,
+        )
+        return None
+
+    logger.info(
+        (
+            "Google Apps Script 備援救援成功："
+            "direction=%s output_length=%d"
+        ),
+        direction,
+        len(translated_text),
+    )
+    return translated_text
+
+
 def translate(
     text: str,
     direction: str,
@@ -170,7 +232,14 @@ def translate(
             logger.warning(
                 "Gemini 回傳空白翻譯結果"
             )
-            return TRANSLATION_FAILED_MESSAGE
+            return (
+                _try_google_fallback(
+                    text=cleaned_text,
+                    direction=direction,
+                    reason="empty_response",
+                )
+                or TRANSLATION_FAILED_MESSAGE
+            )
 
         same_as_input = _translation_was_not_applied(
             original=cleaned_text,
@@ -208,7 +277,14 @@ def translate(
                 logger.warning(
                     "Gemini 重試後回傳空白結果"
                 )
-                return TRANSLATION_FAILED_MESSAGE
+                return (
+                    _try_google_fallback(
+                        text=cleaned_text,
+                        direction=direction,
+                        reason="retry_empty_response",
+                    )
+                    or TRANSLATION_FAILED_MESSAGE
+                )
 
             if _translation_was_not_applied(
                 original=cleaned_text,
@@ -219,22 +295,57 @@ def translate(
                     "Gemini 重試後仍原樣回傳：direction=%s",
                     direction,
                 )
-                return TRANSLATION_FAILED_MESSAGE
+                return (
+                    _try_google_fallback(
+                        text=cleaned_text,
+                        direction=direction,
+                        reason="same_as_input",
+                    )
+                    or TRANSLATION_FAILED_MESSAGE
+                )
 
             translated_text = retry_result
 
         return translated_text
 
-    except EmptyGeminiResponseError:
-        logger.warning("Gemini 主模型與備援模型都回傳空白")
-        return TRANSLATION_FAILED_MESSAGE
+    except (
+        EmptyGeminiResponseError,
+        NoAvailableGeminiKeyError,
+    ) as error:
+        logger.warning("Gemini 主模型與備援模型都無法取得翻譯結果")
+        return (
+            _try_google_fallback(
+                text=cleaned_text,
+                direction=direction,
+                reason=type(error).__name__,
+            )
+            or TRANSLATION_FAILED_MESSAGE
+        )
 
-    except (ServerError, GeminiRequestTimeoutError):
+    except (
+        ServerError,
+        GeminiRequestTimeoutError,
+    ) as error:
         logger.exception("Gemini 服務暫時不可用或請求逾時")
-        return SERVICE_ERROR_MESSAGE
+        return (
+            _try_google_fallback(
+                text=cleaned_text,
+                direction=direction,
+                reason=type(error).__name__,
+            )
+            or SERVICE_ERROR_MESSAGE
+        )
 
     except ClientError as error:
         error_message = str(error)
+        google_result = _try_google_fallback(
+            text=cleaned_text,
+            direction=direction,
+            reason=type(error).__name__,
+        )
+
+        if google_result is not None:
+            return google_result
 
         if (
             "429" in error_message
