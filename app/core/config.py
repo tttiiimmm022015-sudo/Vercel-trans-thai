@@ -12,6 +12,7 @@ DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 10000
 DEFAULT_GEMINI_KEY_COOLDOWN_SECONDS = 60.0
 DEFAULT_MAX_OUTPUT_TOKENS = 1024
+DEFAULT_GOOGLE_TRANSLATE_TIMEOUT_SECONDS = 8.0
 MAX_NUMBERED_GEMINI_KEYS = 20
 
 
@@ -53,6 +54,24 @@ def _load_gemini_api_keys() -> tuple[str, ...]:
     return tuple(dict.fromkeys(candidates))
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    """將常見的環境變數布林值轉成 bool。"""
+
+    value = os.getenv(name)
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off", ""}:
+        return False
+
+    raise RuntimeError(
+        f"{name} 必須是 true/false、1/0、yes/no 或 on/off"
+    )
+
+
 @dataclass(frozen=True)
 class Settings:
     """應用程式環境設定。"""
@@ -65,6 +84,12 @@ class Settings:
     gemini_request_timeout_ms: int = DEFAULT_GEMINI_REQUEST_TIMEOUT_MS
     gemini_key_cooldown_seconds: float = DEFAULT_GEMINI_KEY_COOLDOWN_SECONDS
     max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS
+    google_translate_web_app_url: str = ""
+    google_translate_secret: str = ""
+    google_translate_enabled: bool = False
+    google_translate_timeout_seconds: float = (
+        DEFAULT_GOOGLE_TRANSLATE_TIMEOUT_SECONDS
+    )
     host: str = "0.0.0.0"
     port: int = 8080
     log_level: str = "INFO"
@@ -114,6 +139,21 @@ class Settings:
                     str(DEFAULT_MAX_OUTPUT_TOKENS),
                 )
             ),
+            google_translate_web_app_url=os.getenv(
+                "GOOGLE_TRANSLATE_WEB_APP_URL", ""
+            ).strip(),
+            google_translate_secret=os.getenv(
+                "GOOGLE_TRANSLATE_SECRET", ""
+            ).strip(),
+            google_translate_enabled=_env_flag(
+                "GOOGLE_TRANSLATE_ENABLED"
+            ),
+            google_translate_timeout_seconds=float(
+                os.getenv(
+                    "GOOGLE_TRANSLATE_TIMEOUT_SECONDS",
+                    str(DEFAULT_GOOGLE_TRANSLATE_TIMEOUT_SECONDS),
+                )
+            ),
             host=os.getenv("HOST", "0.0.0.0").strip(),
             port=int(os.getenv("PORT", "8080")),
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
@@ -143,6 +183,23 @@ class Settings:
             raise RuntimeError("GEMINI_KEY_COOLDOWN_SECONDS 不得小於 0")
         if self.max_output_tokens <= 0:
             raise RuntimeError("MAX_OUTPUT_TOKENS 必須大於 0")
+        if self.google_translate_timeout_seconds <= 0:
+            raise RuntimeError(
+                "GOOGLE_TRANSLATE_TIMEOUT_SECONDS 必須大於 0"
+            )
+
+        if self.google_translate_enabled:
+            google_missing: list[str] = []
+            if not self.google_translate_web_app_url:
+                google_missing.append("GOOGLE_TRANSLATE_WEB_APP_URL")
+            if not self.google_translate_secret:
+                google_missing.append("GOOGLE_TRANSLATE_SECRET")
+
+            if google_missing:
+                names = ", ".join(google_missing)
+                raise RuntimeError(
+                    f"已啟用 Google 翻譯備援，但缺少：{names}"
+                )
 
 
 @lru_cache(maxsize=1)
