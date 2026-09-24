@@ -20,11 +20,11 @@ from app.services.google_translate_service import (
 logger = logging.getLogger(__name__)
 
 EMPTY_TEXT_MESSAGE = " Please enter text to translate."
-TRANSLATION_FAILED_MESSAGE = "⚠️ Translation failed. Please try again later."
-QUOTA_EXCEEDED_MESSAGE = "⚠️ Translation limit reached. Try again later."
-MODEL_UNAVAILABLE_MESSAGE = "⚠️ Translation unavailable."
-SERVICE_ERROR_MESSAGE = "⚠️ Translation service unavailable. Try again later."
-SYSTEM_ERROR_MESSAGE = "⚠️ System error. Try again later."
+TRANSLATION_FAILED_MESSAGE = "Translation failed. Please try again later."
+QUOTA_EXCEEDED_MESSAGE = "Translation limit reached. Try again later."
+MODEL_UNAVAILABLE_MESSAGE = "Translation unavailable."
+SERVICE_ERROR_MESSAGE = "Translation service unavailable. Try again later."
+SYSTEM_ERROR_MESSAGE = "System error. Try again later."
 
 THAI_PATTERN = re.compile(r"[\u0E00-\u0E7F]")
 CHINESE_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
