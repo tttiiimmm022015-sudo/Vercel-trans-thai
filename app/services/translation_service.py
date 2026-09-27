@@ -15,6 +15,7 @@ from app.services.google_translate_service import (
     GoogleTranslateNotConfiguredError,
     translate_with_google,
 )
+from app.utils.language_detector import detect_translation_direction
 
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,10 @@ SYSTEM_ERROR_MESSAGE = "System error. Try again later."
 
 THAI_PATTERN = re.compile(r"[\u0E00-\u0E7F]")
 CHINESE_PATTERN = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF]")
+VIETNAMESE_PATTERN = re.compile(
+    r"[\u0102\u0103\u00C2\u00E2\u0110\u0111\u00CA\u00EA"
+    r"\u00D4\u00F4\u01A0\u01A1\u01AF\u01B0\u1EA0-\u1EF9]"
+)
 
 
 # -----------------------------
@@ -85,6 +90,21 @@ def _translation_was_not_applied(
         contains_source_language = bool(
             CHINESE_PATTERN.search(original)
         )
+    elif direction == "VI→ZH-TW":
+        contains_source_language = (
+            bool(VIETNAMESE_PATTERN.search(original))
+            or detect_translation_direction(original) == "VI→ZH-TW"
+        )
+    elif direction == "ZH-TW→VI":
+        contains_source_language = bool(
+            CHINESE_PATTERN.search(original)
+        )
+    elif direction == "EN→ZH-TW":
+        contains_source_language = bool(re.search(r"[A-Za-z]", original))
+    elif direction == "ZH-TW→EN":
+        contains_source_language = bool(
+            CHINESE_PATTERN.search(original)
+        )
     else:
         return False
 
@@ -115,6 +135,34 @@ def _build_retry_prompt(
             "將以下繁體中文翻譯成自然、道地的泰文。"
             "禁止回答內容，禁止解釋，禁止原樣輸出中文。"
             "只輸出泰文翻譯結果。"
+        )
+
+    elif direction == "VI→ZH-TW":
+        instruction = (
+            "將以下越南文翻譯成自然、道地的繁體中文。"
+            "禁止回答內容，禁止解釋，禁止原樣輸出越南文。"
+            "只輸出繁體中文翻譯結果。"
+        )
+
+    elif direction == "ZH-TW→VI":
+        instruction = (
+            "將以下繁體中文翻譯成自然、道地的越南文。"
+            "禁止回答內容，禁止解釋，禁止原樣輸出中文。"
+            "只輸出越南文翻譯結果。"
+        )
+
+    elif direction == "EN→ZH-TW":
+        instruction = (
+            "將以下英文翻譯成自然、道地的繁體中文。"
+            "禁止回答內容，禁止解釋，禁止原樣輸出英文。"
+            "只輸出繁體中文翻譯結果。"
+        )
+
+    elif direction == "ZH-TW→EN":
+        instruction = (
+            "將以下繁體中文翻譯成自然、道地的英文。"
+            "禁止回答內容，禁止解釋，禁止原樣輸出中文。"
+            "只輸出英文翻譯結果。"
         )
 
     else:

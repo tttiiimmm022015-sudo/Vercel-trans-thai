@@ -20,7 +20,21 @@ class GoogleTranslateNotConfiguredError(GoogleTranslateError):
 DIRECTION_LANGUAGE_PAIRS = {
     "TH→ZH-TW": (("th", "zh-TW"),),
     "ZH-TW→TH": (("zh-TW", "th"),),
+    "VI→ZH-TW": (("vi", "zh-TW"),),
+    "ZH-TW→VI": (("zh-TW", "vi"),),
+    "EN→ZH-TW": (("en", "zh-TW"),),
+    "ZH-TW→EN": (("zh-TW", "en"),),
     "EN→ZH-TW+TH": (("en", "zh-TW"), ("en", "th")),
+    "EN→ZH-TW+VI": (("en", "zh-TW"), ("en", "vi")),
+    "TH→ZH-TW+EN": (("th", "zh-TW"), ("th", "en")),
+    "VI→ZH-TW+EN": (("vi", "zh-TW"), ("vi", "en")),
+}
+
+DUAL_DIRECTION_LABELS = {
+    "EN→ZH-TW+TH": "泰文",
+    "EN→ZH-TW+VI": "越南文",
+    "TH→ZH-TW+EN": "英文",
+    "VI→ZH-TW+EN": "英文",
 }
 
 
@@ -150,7 +164,11 @@ def translate_with_google(
         for source, target in language_pairs
     ]
 
-    if direction == "EN→ZH-TW+TH":
-        return f"中文：\n{results[0]}\n\n泰文：\n{results[1]}"
+    secondary_label = DUAL_DIRECTION_LABELS.get(direction)
+    if secondary_label is not None:
+        return (
+            f"中文：\n{results[0]}\n\n"
+            f"{secondary_label}：\n{results[1]}"
+        )
 
     return results[0]

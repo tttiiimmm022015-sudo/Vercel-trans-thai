@@ -78,6 +78,76 @@ class GoogleTranslateServiceTests(unittest.TestCase):
         )
         self.assertEqual(request_translation.call_count, 2)
 
+    def test_vietnamese_directions_use_expected_language_codes(self) -> None:
+        with patch.object(
+            google_translate_service,
+            "_request_translation",
+            side_effect=["客人回去了", "Khách đã về rồi"],
+        ) as request_translation:
+            vi_to_zh = google_translate_service.translate_with_google(
+                "Khách đã về rồi",
+                "VI→ZH-TW",
+                settings=_settings(),
+            )
+            zh_to_vi = google_translate_service.translate_with_google(
+                "客人回去了",
+                "ZH-TW→VI",
+                settings=_settings(),
+            )
+
+        self.assertEqual(vi_to_zh, "客人回去了")
+        self.assertEqual(zh_to_vi, "Khách đã về rồi")
+        self.assertEqual(
+            request_translation.call_args_list[0].kwargs["source"],
+            "vi",
+        )
+        self.assertEqual(
+            request_translation.call_args_list[0].kwargs["target"],
+            "zh-TW",
+        )
+        self.assertEqual(
+            request_translation.call_args_list[1].kwargs["source"],
+            "zh-TW",
+        )
+        self.assertEqual(
+            request_translation.call_args_list[1].kwargs["target"],
+            "vi",
+        )
+
+    def test_english_to_vietnamese_mode_keeps_dual_format(self) -> None:
+        with patch.object(
+            google_translate_service,
+            "_request_translation",
+            side_effect=["客人回去了", "Khách đã về rồi"],
+        ):
+            result = google_translate_service.translate_with_google(
+                "The customer left.",
+                "EN→ZH-TW+VI",
+                settings=_settings(),
+            )
+
+        self.assertEqual(
+            result,
+            "中文：\n客人回去了\n\n越南文：\nKhách đã về rồi",
+        )
+
+    def test_thai_to_english_mode_keeps_dual_format(self) -> None:
+        with patch.object(
+            google_translate_service,
+            "_request_translation",
+            side_effect=["客人回去了", "The customer left."],
+        ):
+            result = google_translate_service.translate_with_google(
+                "ลูกค้ากลับแล้ว",
+                "TH→ZH-TW+EN",
+                settings=_settings(),
+            )
+
+        self.assertEqual(
+            result,
+            "中文：\n客人回去了\n\n英文：\nThe customer left.",
+        )
+
     def test_disabled_fallback_does_not_send_request(self) -> None:
         with (
             patch.object(

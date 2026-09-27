@@ -13,6 +13,7 @@ DEFAULT_GEMINI_REQUEST_TIMEOUT_MS = 10000
 DEFAULT_GEMINI_KEY_COOLDOWN_SECONDS = 60.0
 DEFAULT_MAX_OUTPUT_TOKENS = 1024
 DEFAULT_GOOGLE_TRANSLATE_TIMEOUT_SECONDS = 8.0
+DEFAULT_LANGUAGE_STORE_TIMEOUT_SECONDS = 1.5
 MAX_NUMBERED_GEMINI_KEYS = 20
 
 
@@ -72,6 +73,16 @@ def _env_flag(name: str, default: bool = False) -> bool:
     )
 
 
+def _first_env(*names: str) -> str:
+    """依序取得第一個有值的環境變數。"""
+
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 @dataclass(frozen=True)
 class Settings:
     """應用程式環境設定。"""
@@ -89,6 +100,11 @@ class Settings:
     google_translate_enabled: bool = False
     google_translate_timeout_seconds: float = (
         DEFAULT_GOOGLE_TRANSLATE_TIMEOUT_SECONDS
+    )
+    upstash_redis_rest_url: str = ""
+    upstash_redis_rest_token: str = ""
+    language_store_timeout_seconds: float = (
+        DEFAULT_LANGUAGE_STORE_TIMEOUT_SECONDS
     )
     host: str = "0.0.0.0"
     port: int = 8080
@@ -154,6 +170,22 @@ class Settings:
                     str(DEFAULT_GOOGLE_TRANSLATE_TIMEOUT_SECONDS),
                 )
             ),
+            upstash_redis_rest_url=_first_env(
+                "UPSTASH_REDIS_REST_URL",
+                "UPSTASH_REDIS_REST_KV_REST_API_URL",
+                "KV_REST_API_URL",
+            ),
+            upstash_redis_rest_token=_first_env(
+                "UPSTASH_REDIS_REST_TOKEN",
+                "UPSTASH_REDIS_REST_KV_REST_API_TOKEN",
+                "KV_REST_API_TOKEN",
+            ),
+            language_store_timeout_seconds=float(
+                os.getenv(
+                    "LANGUAGE_STORE_TIMEOUT_SECONDS",
+                    str(DEFAULT_LANGUAGE_STORE_TIMEOUT_SECONDS),
+                )
+            ),
             host=os.getenv("HOST", "0.0.0.0").strip(),
             port=int(os.getenv("PORT", "8080")),
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper(),
@@ -186,6 +218,20 @@ class Settings:
         if self.google_translate_timeout_seconds <= 0:
             raise RuntimeError(
                 "GOOGLE_TRANSLATE_TIMEOUT_SECONDS 必須大於 0"
+            )
+        if self.language_store_timeout_seconds <= 0:
+            raise RuntimeError(
+                "LANGUAGE_STORE_TIMEOUT_SECONDS 必須大於 0"
+            )
+
+        redis_values = (
+            self.upstash_redis_rest_url,
+            self.upstash_redis_rest_token,
+        )
+        if any(redis_values) and not all(redis_values):
+            raise RuntimeError(
+                "Upstash Redis 必須同時設定 "
+                "UPSTASH_REDIS_REST_URL 與 UPSTASH_REDIS_REST_TOKEN"
             )
 
         if self.google_translate_enabled:
